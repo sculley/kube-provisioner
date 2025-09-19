@@ -139,7 +139,7 @@ fi
 # Must match: number.number.number (e.g. 1.34.1)
 if [[ ! "${k8s_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   fatal "Invalid Kubernetes version specified, must be in \
-         format X.Y.Z (e.g. 1.34.1)"
+format X.Y.Z (e.g. 1.34.1)"
 fi
 
 # If role is control-plane, vip-address is required
@@ -154,7 +154,7 @@ fi
 if [[ "${method}" == "init" && "${role}" == "control-plane" ]]; then
   if [[ -z "${cloudflare_api_token:-}" ]]; then
     fatal "--cloudflare-api-token is required when method is \
-           'init' and role is 'control-plane'"
+'init' and role is 'control-plane'"
   fi
 fi
 
@@ -173,7 +173,7 @@ fi
 if [[ -z "${aws_access_key_id:-}" || -z "${aws_secret_access_key:-}" || -z "${aws_region:-}" ]]; then
   if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" || -z "${AWS_REGION:-}" ]]; then
     fatal "AWS credentials and region must be provided via \
-           command line arguments or environment variables"
+command line arguments or environment variables"
   else
     aws_access_key_id="${AWS_ACCESS_KEY_ID}"
     aws_secret_access_key="${AWS_SECRET_ACCESS_KEY}"
@@ -216,11 +216,14 @@ as a ${role} node using method: ${method}..."
 
   # Setup the kube-provisioner environment file
   cat <<EOF >/etc/kube-provisioner.env
-  # AWS credentials for accessing S3 to store/retrieve kubeadm parameters
-  AWS_ACCESS_KEY_ID=${aws_access_key_id}
-  AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
-  AWS_REGION=${aws_region}
+# AWS credentials for accessing S3 to store/retrieve kubeadm parameters
+AWS_ACCESS_KEY_ID=${aws_access_key_id}
+AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
+AWS_REGION=${aws_region}
 EOF
+
+  # shellcheck disable=SC1091
+  source /etc/kube-provisioner.env
 
   # Configure the kubernetes cluster i.e. init/join and networking
   configure_kubernetes \

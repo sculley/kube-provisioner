@@ -226,10 +226,10 @@ _configure_control_plane() {
 #  - method: The method to use (init or join)
 #  - vip_address: The virtual IP address to be used by kube-vip for HA
 configure_kubernetes() {
-    local cluster_id="${1}" role="${2}" method="${3}" vip_address="${4}"
+    local cluster_id="${1}" role="${2}" method="${3}" vip_address="${4}" parameter_store_bucket="${5}"
 
     if [[ "${role}" == "control-plane" ]]; then
-        _configure_control_plane "${cluster_id}" "${method}" "${vip_address}"
+        _configure_control_plane "${cluster_id}" "${method}" "${vip_address}" "${parameter_store_bucket}"
 
         # Remove taint from control-plane node to allow scheduling Pods
         kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true
