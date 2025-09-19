@@ -71,12 +71,11 @@ kube_vip_version=${kube_vip_version}"
 _wait_for_pod_ready() {
     local namespace="$1" pod="$2"
     
-    log "Waiting for Pod ${pod} in namespace ${namespace} to be ready..."
-    until kubectl get pods -n "${namespace}" | grep "${pod}" | \
-    grep Running &>/dev/null; do
-        sleep 2
-        echo "Waiting..."
-    done
+        log "Waiting for Pod ${pod} in namespace ${namespace} to be ready..."
+        echo "Waiting for pod ${pod} in namespace ${namespace} to be ready..."
+        kubectl wait --namespace "${namespace}" \
+            --for=condition=Ready pod "${pod}" \
+            --timeout=120s
 }
 
 # Applies the Calico CNI plugin to the cluster using the latest release
