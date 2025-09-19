@@ -9,21 +9,21 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # source the script files
 # shellcheck disable=SC1090,SC1091
-source "$SCRIPT_DIR/scripts/common.sh"
+source "$ROOT_DIR/scripts/common.sh"
 # shellcheck disable=SC1090,SC1091
-source "$SCRIPT_DIR/scripts/install-containerd.sh"
+source "$ROOT_DIR/scripts/install-containerd.sh"
 # shellcheck disable=SC1090,SC1091
-source "$SCRIPT_DIR/scripts/install-kubernetes.sh"
+source "$ROOT_DIR/scripts/install-kubernetes.sh"
 # shellcheck disable=SC1090,SC1091
-source "$SCRIPT_DIR/scripts/configure-kubernetes.sh"
+source "$ROOT_DIR/scripts/configure-kubernetes.sh"
 # shellcheck disable=SC1090,SC1091
-source "$SCRIPT_DIR/scripts/install-helm.sh"
+source "$ROOT_DIR/scripts/install-helm.sh"
 # shellcheck disable=SC1090,SC1091
-source "$SCRIPT_DIR/scripts/install-addons.sh"
+source "$ROOT_DIR/scripts/install-addons.sh"
 
 
 # Usage function to display help
@@ -32,19 +32,16 @@ usage() {
 Usage: $0 [options]
 
 Options:
-  --cluster-name, -c <name>           Specify the cluster name
-  --role, -r <control-plane|worker>
-    Specify the node role (default: control-plane)
-  --method, -m <init|join>
-    Specify the method to use (default: init)
-  --k8s-version, -k <version>
-    Specify the Kubernetes version (default: v1.34.0)
-  --vip-address <IP_ADDRESS>
-    Specify the VIP address for kube-vip (required if --type is ha)
-  --add-ons-only                      Install or upgrade add-ons only
-  --letsencrypt-environment <staging|production>
-    Specify the Let's Encrypt environment to use (default: staging)
-  --help, -h                          Show this help message and exit
+  --install                                  Install Kubernetes (default: true)
+  --upgrade                                  Upgrade Kubernetes (default: false)
+  --cluster-name <name>                      Specify the cluster name (required)
+  --role <control-plane|worker>              Specify the node role (default: control-plane)
+  --method <init|join>                       Specify the method to use (default: init)
+  --k8s-version <version>                    Specify the Kubernetes version (default: v1.34.0)
+  --vip-address <IP_ADDRESS>                 Specify the VIP address for kube-vip (required)
+  --add-ons-only                             Install or upgrade add-ons only (default: false)
+  --letsencrypt-env <staging|production>     Specify the Let's Encrypt environment to use (default: staging)
+  --help, -h                                 Show this help message and exit
 
 Requires the following environment variables to be set to access AWS S3
 for storing and retrieving kubeadm parameters:
@@ -54,16 +51,24 @@ for storing and retrieving kubeadm parameters:
 EOF
 }
 
+# Default values for variables
+install=false
+upgrade=false
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --install)
+      install=true; shift ;;
+    --upgrade)
+      upgrade=true; shift ;;
     --cluster-name|-c)
       cluster_name="$2"; shift 2 ;;
-    --role|-r)
+    --role)
       role="$2"; shift 2 ;;
-    --method|-m)
+    --method)
       method="$2"; shift 2 ;;
-    --k8s-version|-k)
+    --k8s-version)
       k8s_version="$2"; shift 2 ;;
     --vip-address)
       vip_address="$2"; shift 2 ;;
@@ -80,10 +85,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "${install}" == "true" && "${upgrade}" == "true" ]]; then
+  warn "Both --install and --upgrade specified, defaulting to --install"
+  upgrade=false
+fi
+
+if [[ "${install}" == "false" && "${upgrade}" == "false" ]]; then
+  install=true
+  upgrade=false
+fi
+
 # Validate required arguments
 # Cluster name is required
 if [[ "${cluster_name:-}" == "" ]]; then
   fatal "--cluster-name is required"
+fi
+
+# upgrade should be true or false, if not set, default to false
+if [[ "${upgrade:-}" == "" ]]; then
+  upgrade="false"
+elif [[ "${upgrade:-}" != "true" && "${upgrade:-}" != "false" ]]; then
+  fatal "--upgrade must be true or false"
 fi
 
 # Must be control-plane or worker
@@ -141,7 +163,7 @@ aws_access_key_id="${aws_access_key_id:-${AWS_ACCESS_KEY_ID:-}}"
 aws_secret_access_key="${aws_secret_access_key:-${AWS_SECRET_ACCESS_KEY:-}}"
 aws_region="${aws_region:-${AWS_REGION:-}}"
 
-# Install addons only if specified and exit
+# Install/Upgrade the addons only if specified and exit
 if [[ "${add_ons_only:-}" == "true" ]]; then
   log "Installing or upgrading add-ons only..."
 
@@ -154,26 +176,56 @@ if [[ "${add_ons_only:-}" == "true" ]]; then
   exit 0
 fi
 
-# Install containerd
-install_containerd
+# Start the installation or upgrade process
+if [[ "${install}" == "true" ]]; then
+  log "Starting Installation of Kubernetes for cluster: ${cluster_name} \
+as a ${role} node using method: ${method}..."
 
-# Install the kubernetes dependencies and packages
-install_kubernetes "${k8s_version}"
+  # Install containerd
+  install_containerd
 
-# Configure the kubernetes cluster i.e. init/join and networking
-configure_kubernetes \
-  "${cluster_name}" \
-  "${role}" \
-  "${method}" \
-  "${vip_address}"
+  # Install the kubernetes dependencies and packages
+  install_kubernetes "${k8s_version}"
 
-if [[ "${method}" == "init" ]]; then
-  # Install Helm
-  install_helm
+  # Create the /opt/kube-provisioner/bin directory if it doesn't exist
+  if [[ ! -d /opt/kube-provisioner/bin ]]; then
+    sudo mkdir -p /opt/kube-provisioner/bin
+  fi
 
-  # Install or upgrade add-ons
-  install_addons "$cloudflare_api_token"
+  # Copy scripts to /opt/kube-provisioner/bin
+  install -D -m 0755 "${ROOT_DIR}/scripts/common.sh" /opt/kube-provisioner/bin/common.sh
+  install -D -m 0755 "${ROOT_DIR}/scripts/parameter-store.sh" /opt/kube-provisioner/bin/parameter-store
+
+  # Setup the kube-provisioner environment file
+  cat <<EOF >/etc/kube-provisioner.env
+  # AWS credentials for accessing S3 to store/retrieve kubeadm parameters
+  AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+  AWS_REGION=${AWS_REGION}
+EOF
+
+  # Configure the kubernetes cluster i.e. init/join and networking
+  configure_kubernetes \
+    "${cluster_name}" \
+    "${role}" \
+    "${method}" \
+    "${vip_address}"
+
+  if [[ "${method}" == "init" ]]; then
+    # Install Helm
+    install_helm
+
+    # Install or upgrade add-ons
+    install_addons "$cloudflare_api_token"
+  fi
+elif [[ "${upgrade}" == "true" ]]; then
+  log "Starting Upgrade of Kubernetes for cluster: ${cluster_name} \
+as a ${role} node..."
+
+  debug "This is a placeholder for future upgrade functionality"
+else
+  log "Neither --install nor --upgrade specified, nothing to do..."
+  exit 0
 fi
 
 log "Kubernetes provisioning complete."
-
