@@ -87,6 +87,10 @@ store_parameters() {
     # Install AWS CLI if not present
     _install_aws_cli
 
+    # Source AWS credentials from environment variables
+    # shellcheck disable=SC1091
+    source /etc/kube-provisioner.env
+
     local s3_path="s3://someadmin-cloud-parameter-store-dev/\
 ${cluster_id}/parameters"
     log "Storing parameters for cluster ID ${cluster_id} to S3: ${s3_path}"
@@ -105,6 +109,10 @@ retrieve_parameters() {
 
     # Install AWS CLI if not present
     _install_aws_cli
+
+    # Source AWS credentials from environment variables
+    # shellcheck disable=SC1091
+    source /etc/kube-provisioner.env
 
     local s3_path="s3://someadmin-cloud-parameter-store-dev/\
 ${cluster_id}/parameters"
@@ -134,18 +142,18 @@ create_parameter_store_cronjob() {
     log "Creating parameter store cronjob to back up \
 parameters every 6 hours..."
 
-    cat <<EOF >/etc/cron.d/parameter-store-backup
+    cat <<EOF >/etc/cron.d/parameter-store
 # m h dom mon dow user command
-0 */6 * * * root /root/kube-deploy/scripts/parameter-store.sh ${cluster_id}\
->> /var/log/parameter-store-backup.log 2>&1
+0 */6 * * * root /opt/kube-provisioner/bin/parameter-store ${cluster_id}\
+>> /var/log/parameter-store.log 2>&1
 EOF
 
-    log "Setting up log rotation for parameter store backup logs..."
+    log "Setting up log rotation for parameter store logs..."
 
     # Create a logrotate configuration to rotate the log file weekly
     # and keep 4 weeks of logs
-    cat <<EOF >/etc/logrotate.d/parameter-store-backup
-/var/log/parameter-store-backup.log {
+    cat <<EOF >/etc/logrotate.d/parameter-store
+/var/log/parameter-store.log {
     weekly
     rotate 4
     compress
