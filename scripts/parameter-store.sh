@@ -80,7 +80,7 @@ _load_env_from_json_str() {
 # Args:
 #  - cluster_id: The unique identifier for the cluster
 store_parameters() {
-    local cluster_id=$1
+    local cluster_id=$1 parameter_store_bucket=$2
     local parameters
     parameters="$(_get_kubeadm_parameters)"
 
@@ -91,7 +91,7 @@ store_parameters() {
     # shellcheck disable=SC1091
     source /etc/kube-provisioner.env
 
-    local s3_path="s3://someadmin-cloud-parameter-store-dev/\
+    local s3_path="s3://${parameter_store_bucket}/\
 ${cluster_id}/parameters"
     log "Storing parameters for cluster ID ${cluster_id} to S3: ${s3_path}"
 
@@ -104,7 +104,7 @@ ${cluster_id}/parameters"
 # Args:
 #  - cluster_id: The unique identifier for the cluster
 retrieve_parameters() {
-    local cluster_id=$1
+    local cluster_id=$1 parameter_store_bucket=$2
     local parameters
 
     # Install AWS CLI if not present
@@ -114,7 +114,7 @@ retrieve_parameters() {
     # shellcheck disable=SC1091
     source /etc/kube-provisioner.env
 
-    local s3_path="s3://someadmin-cloud-parameter-store-dev/\
+    local s3_path="s3://${parameter_store_bucket}/\
 ${cluster_id}/parameters"
 
     log "Retrieving parameters for cluster ID ${cluster_id} \
@@ -137,15 +137,15 @@ from S3: ${s3_path}"
 # Args:
 #  - cluster_id: The unique identifier for the cluster
 create_parameter_store_cronjob() {
-    local cluster_id=$1
+    local cluster_id=$1 parameter_store_bucket=$2
 
     log "Creating parameter store cronjob to back up \
 parameters every 6 hours..."
 
     cat <<EOF >/etc/cron.d/parameter-store
 # m h dom mon dow user command
-0 */6 * * * root /opt/kube-provisioner/bin/parameter-store ${cluster_id}\
->> /var/log/parameter-store.log 2>&1
+0 */6 * * * root /opt/kube-provisioner/bin/parameter-store ${cluster_id} \
+${parameter_store_bucket} >> /var/log/parameter-store.log 2>&1
 EOF
 
     log "Setting up log rotation for parameter store logs..."
@@ -165,12 +165,12 @@ EOF
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    cluster_id="$1"
+    cluster_id="$1" parameter_store_bucket="$2"
 
-    log "Storing parameters for cluster ID ${cluster_id}..."
+    log "Storing parameters for cluster ID ${cluster_id} in ${parameter_store_bucket}..."
 
     # Store the parameters in the parameter store
-    store_parameters "${cluster_id}"
+    store_parameters "${cluster_id}" "${parameter_store_bucket}"
 
     log "Parameter store setup complete."
 fi

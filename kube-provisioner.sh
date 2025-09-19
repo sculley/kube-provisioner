@@ -41,6 +41,11 @@ Options:
   --vip-address <IP_ADDRESS>                 Specify the VIP address for kube-vip (required)
   --add-ons-only                             Install or upgrade add-ons only (default: false)
   --letsencrypt-env <staging|production>     Specify the Let's Encrypt environment to use (default: staging)
+  --cloudflare-api-token <token>             Specify the Cloudflare API token (required for init method on control-plane)
+  --parameter-store-bucket <bucket_name>     Specify the S3 bucket name for parameter store (required)
+  --aws-access-key-id <key_id>               AWS Access Key ID for S3 access (can also be set via AWS_ACCESS_KEY_ID env var)
+  --aws-secret-access-key <secret_key>       AWS Secret Access Key for S3 access (can also be set via AWS_SECRET_ACCESS_KEY env var)
+  --aws-region <region>                      AWS Region for S3 access (can also be set
   --help, -h                                 Show this help message and exit
 
 Requires the following environment variables to be set to access AWS S3
@@ -74,10 +79,18 @@ while [[ $# -gt 0 ]]; do
       vip_address="$2"; shift 2 ;;
     --add-ons-only)
       add_ons_only=true; shift ;;
-    --cloudflare-api-token)
-      cloudflare_api_token="$2"; shift 2 ;;
     --letsencrypt-environment)
       letsencrypt_environment="$2"; shift 2 ;;
+    --cloudflare-api-token)
+      cloudflare_api_token="$2"; shift 2 ;;
+    --parameter-store-bucket)
+      parameter_store_bucket="$2"; shift 2 ;;
+    --aws-access-key-id)
+      aws_access_key_id="$2"; shift 2 ;;
+    --aws-secret-access-key)
+      aws_secret_access_key="$2"; shift 2 ;;
+    --aws-region)
+      aws_region="$2"; shift 2 ;;
     --help|-h)
       usage; exit 0 ;;
     --) shift; break ;;
@@ -137,8 +150,12 @@ if [[ "${role}" == "control-plane" ]]; then
   fi
 fi
 
-if [[ "${cloudflare_api_token:-}" == "" ]]; then
-  fatal "--cloudflare-api-token is required to install external-dns/cert-manager add-ons"
+# cloudflare_api_token is required if method is init and role is control-plane
+if [[ "${method}" == "init" && "${role}" == "control-plane" ]]; then
+  if [[ -z "${cloudflare_api_token:-}" ]]; then
+    fatal "--cloudflare-api-token is required when method is \
+           'init' and role is 'control-plane'"
+  fi
 fi
 
 # Default Let's Encrypt environment if not specified
@@ -146,22 +163,23 @@ if [[ -z "${letsencrypt_environment:-}" ]]; then
   letsencrypt_environment="staging"
 fi
 
-# If aws_access_key_id is not supplied, look for it in the environment 
-# variable AWS_ACCESS_KEY_ID
-if [[ -z "${AWS_ACCESS_KEY_ID:-}" ]] && \
-   [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && \
-   [[ -z "${AWS_REGION:-}" ]]; then
-  fatal "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_REGION environment \
-variables must be set to store/retrieve kubeadm parameters"
+# parameter_store_bucket is required
+if [[ -z "${parameter_store_bucket:-}" ]]; then
+  fatal "--parameter-store-bucket is required"
 fi
 
-# Ensure aws_* variables are defined (may be provided via CLI flags 
-# in other versions)
-# Prefer explicit variables if already set; otherwise fall back to 
-# environment variables.
-aws_access_key_id="${aws_access_key_id:-${AWS_ACCESS_KEY_ID:-}}"
-aws_secret_access_key="${aws_secret_access_key:-${AWS_SECRET_ACCESS_KEY:-}}"
-aws_region="${aws_region:-${AWS_REGION:-}}"
+# If aws_access_key_id, aws_secret_access_key, or aws_region are not set,
+# check for the corresponding environment variables
+if [[ -z "${aws_access_key_id:-}" || -z "${aws_secret_access_key:-}" || -z "${aws_region:-}" ]]; then
+  if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" || -z "${AWS_REGION:-}" ]]; then
+    fatal "AWS credentials and region must be provided via \
+           command line arguments or environment variables"
+  else
+    aws_access_key_id="${AWS_ACCESS_KEY_ID}"
+    aws_secret_access_key="${AWS_SECRET_ACCESS_KEY}"
+    aws_region="${AWS_REGION}"
+  fi
+fi
 
 # Install/Upgrade the addons only if specified and exit
 if [[ "${add_ons_only:-}" == "true" ]]; then
@@ -199,9 +217,9 @@ as a ${role} node using method: ${method}..."
   # Setup the kube-provisioner environment file
   cat <<EOF >/etc/kube-provisioner.env
   # AWS credentials for accessing S3 to store/retrieve kubeadm parameters
-  AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-  AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-  AWS_REGION=${AWS_REGION}
+  AWS_ACCESS_KEY_ID=${aws_access_key_id}
+  AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
+  AWS_REGION=${aws_region}
 EOF
 
   # Configure the kubernetes cluster i.e. init/join and networking
@@ -209,7 +227,8 @@ EOF
     "${cluster_name}" \
     "${role}" \
     "${method}" \
-    "${vip_address}"
+    "${vip_address}" \
+    "${parameter_store_bucket}"
 
   if [[ "${method}" == "init" ]]; then
     # Install Helm

@@ -171,7 +171,7 @@ ${cluster_id} at ${KUBE_PROVISION_ADDRESS}..."
 #  - method: The method to use (init or join)
 #  - vip_address: The virtual IP address to be used by kube-vip
 _configure_control_plane() {
-    local cluster_id="${1}" method="${2}" vip_address="${3}"
+    local cluster_id="${1}" method="${2}" vip_address="${3}" parameter_store_bucket="${4}"
     local k8s_config_path
     # If this is the first control-plane node being initialized, we need to use
     # super-admin.conf for kube-vip to create the static Pod manifest
@@ -199,11 +199,11 @@ _configure_control_plane() {
         _apply_calico
 
         # Store the parameters in the parameter store
-        store_parameters "${cluster_id}"
+        store_parameters "${cluster_id}" "${parameter_store_bucket}"
     elif [[ "${method}" == "join" ]]; then
         # Retrieve the parameters from the parameter store and set 
         # them as environment variables
-        retrieve_parameters "${cluster_id}"
+        retrieve_parameters "${cluster_id}" "${parameter_store_bucket}"
         
         # Join the control-plane
         _join_control_plane "${cluster_id}"
@@ -213,7 +213,7 @@ _configure_control_plane() {
     fi
 
     # Create the parameter store cronjob to back up parameters every 6 hours
-    create_parameter_store_cronjob "${cluster_id}"
+    create_parameter_store_cronjob "${cluster_id}" "${parameter_store_bucket}"
 
     log "Kubernetes control-plane node configured successfully..."
 }
