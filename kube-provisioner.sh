@@ -39,9 +39,6 @@ Options:
   --method <init|join>                       Specify the method to use (default: init)
   --k8s-version <version>                    Specify the Kubernetes version (default: v1.34.0)
   --vip-address <IP_ADDRESS>                 Specify the VIP address for kube-vip (required)
-  --add-ons-only                             Install or upgrade add-ons only (default: false)
-  --letsencrypt-env <staging|production>     Specify the Let's Encrypt environment to use (default: staging)
-  --cloudflare-api-token <token>             Specify the Cloudflare API token (required for init method on control-plane)
   --parameter-store-bucket <bucket_name>     Specify the S3 bucket name for parameter store (required)
   --aws-access-key-id <key_id>               AWS Access Key ID for S3 access (can also be set via AWS_ACCESS_KEY_ID env var)
   --aws-secret-access-key <secret_key>       AWS Secret Access Key for S3 access (can also be set via AWS_SECRET_ACCESS_KEY env var)
@@ -77,12 +74,6 @@ while [[ $# -gt 0 ]]; do
       k8s_version="$2"; shift 2 ;;
     --vip-address)
       vip_address="$2"; shift 2 ;;
-    --add-ons-only)
-      add_ons_only=true; shift ;;
-    --letsencrypt-environment)
-      letsencrypt_environment="$2"; shift 2 ;;
-    --cloudflare-api-token)
-      cloudflare_api_token="$2"; shift 2 ;;
     --parameter-store-bucket)
       parameter_store_bucket="$2"; shift 2 ;;
     --aws-access-key-id)
@@ -150,19 +141,6 @@ if [[ "${role}" == "control-plane" ]]; then
   fi
 fi
 
-# cloudflare_api_token is required if method is init and role is control-plane
-if [[ "${method}" == "init" && "${role}" == "control-plane" ]]; then
-  if [[ -z "${cloudflare_api_token:-}" ]]; then
-    fatal "--cloudflare-api-token is required when method is \
-'init' and role is 'control-plane'"
-  fi
-fi
-
-# Default Let's Encrypt environment if not specified
-if [[ -z "${letsencrypt_environment:-}" ]]; then
-  letsencrypt_environment="staging"
-fi
-
 # parameter_store_bucket is required
 if [[ -z "${parameter_store_bucket:-}" ]]; then
   fatal "--parameter-store-bucket is required"
@@ -181,22 +159,9 @@ command line arguments or environment variables"
   fi
 fi
 
-# Install/Upgrade the addons only if specified and exit
-if [[ "${add_ons_only:-}" == "true" ]]; then
-  log "Installing or upgrading add-ons only..."
-
-  # Install Helm
-  install_helm
-
-  install_addons "$cloudflare_api_token"
-
-  # Exit after installing add-ons
-  exit 0
-fi
-
 # Start the installation or upgrade process
 if [[ "${install}" == "true" ]]; then
-  log "Starting Installation of Kubernetes for cluster: ${cluster_name} \
+  log "Starting provisioning of Kubernetes for cluster: ${cluster_name} \
 as a ${role} node using method: ${method}..."
 
   # Install containerd
@@ -216,10 +181,9 @@ as a ${role} node using method: ${method}..."
 
   # Setup the kube-provisioner environment file
   cat <<EOF >/etc/kube-provisioner.env
-# AWS credentials for accessing S3 to store/retrieve kubeadm parameters
-AWS_ACCESS_KEY_ID=${aws_access_key_id}
-AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
-AWS_REGION=${aws_region}
+export AWS_ACCESS_KEY_ID=${aws_access_key_id}
+export AWS_SECRET_ACCESS_KEY=${aws_secret_access_key}
+export AWS_REGION=${aws_region}
 EOF
 
   # shellcheck disable=SC1091
@@ -232,14 +196,7 @@ EOF
     "${method}" \
     "${vip_address}" \
     "${parameter_store_bucket}"
-
-  if [[ "${method}" == "init" ]]; then
-    # Install Helm
-    install_helm
-
-    # Install or upgrade add-ons
-    install_addons "$cloudflare_api_token"
-  fi
+    exit 0
 elif [[ "${upgrade}" == "true" ]]; then
   log "Starting Upgrade of Kubernetes for cluster: ${cluster_name} \
 as a ${role} node..."

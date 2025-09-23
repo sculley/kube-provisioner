@@ -22,6 +22,35 @@ EOF
 	sudo sysctl --system |grep ip_forward
 }
 
+_raise_ionotify_limits() {
+	log "Raising inotify limits..."
+
+	# Increase inotify limits for better file watching performance
+	cat <<EOF | sudo tee /etc/sysctl.d/99-inotify.conf
+fs.inotify.max_queued_events = 1048576
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 1048576
+EOF
+	sudo sysctl --system
+}
+
+_raise_open_file_limits() {
+	log "Raising open file limits..."
+
+mkdir -p /etc/systemd/system/kubelet.service.d
+
+	# Increase open file limits for better performance
+	cat <<EOF | sudo tee /etc/systemd/system/kubelet.service.dlimits.conf
+[Service]
+LimitNOFILE=1048576
+LimitNPROC=1048576
+EOF
+
+	# Reload systemd to apply changes, don't error if the daemon-reload fails
+	# (e.g. if systemd is not running or they don't exist yet)
+	systemctl daemon-reload || true
+}
+
 _setup_kube_repo() {
     log "Setting up Kubernetes apt repository..."
 
@@ -95,6 +124,10 @@ install_kubernetes() {
 
 	# Set up the Kubernetes apt repository
 	_setup_kube_repo "$version"
+
+	# Increase system limits & open file descriptors
+	_raise_ionotify_limits
+	_raise_open_file_limits
 
 	# Install kubectl, kubelet and kubeadm
 	_install_kubectl "$version"

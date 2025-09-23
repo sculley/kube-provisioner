@@ -238,6 +238,9 @@ configure_kubernetes() {
         # node-role.kubernetes.io/node
         kubectl label node "$(hostname)" node-role.kubernetes.io/control-plane- --overwrite || true
 
+        # remove the node.kubernetes.io/exclude-from-external-load-balancers: "" from control-plane node
+        kubectl label node "$(hostname)" node.kubernetes.io/exclude-from-external-load-balancers- || true
+
         kubectl label node "$(hostname)" "node-role.kubernetes.io/node=" --overwrite
     elif [[ "${role}" == "worker" ]]; then
         # Retrieve the parameters from the parameter store and set 

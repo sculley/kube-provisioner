@@ -140,11 +140,11 @@ create_parameter_store_cronjob() {
     local cluster_id=$1 parameter_store_bucket=$2
 
     log "Creating parameter store cronjob to back up \
-parameters every 6 hours..."
+parameters every 1 hours..."
 
     cat <<EOF >/etc/cron.d/parameter-store
 # m h dom mon dow user command
-0 */6 * * * root /opt/kube-provisioner/bin/parameter-store ${cluster_id} \
+0 */1 * * * root /opt/kube-provisioner/bin/parameter-store ${cluster_id} \
 ${parameter_store_bucket} >> /var/log/parameter-store.log 2>&1
 EOF
 

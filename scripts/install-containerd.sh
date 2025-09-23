@@ -8,6 +8,22 @@ OS=$(uname -s)
 ARCH=$(uname -m)
 [[ "$ARCH" == x86_64 ]] && ARCH=amd64
 
+_raise_open_file_limits() {
+	log "Raising open file limits for containerd..."
+
+mkdir -p /etc/systemd/system/containerd.service.d
+
+	cat <<EOF | sudo tee /etc/systemd/system/containerd.service.d/limits.conf
+[Service]
+LimitNOFILE=1048576
+LimitNPROC=1048576
+EOF
+
+	# Reload systemd to apply changes, don't error if the daemon-reload fails
+	# (e.g. if systemd is not running or they don't exist yet)
+	systemctl daemon-reload || true
+}
+
 _install_containerd() {
     latest_url="https://api.github.com/repos/containerd/containerd/releases/\
 latest"
@@ -133,6 +149,9 @@ install_containerd() {
 
     _install_containerd
     _install_containerd_service
+
+    _raise_open_file_limits
+
     _install_containerd_cni_plugins
     _install_containerd_set_systemdcgroup
     _install_containerd_bash_completion
