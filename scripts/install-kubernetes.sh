@@ -51,6 +51,13 @@ EOF
 	systemctl daemon-reload || true
 }
 
+_install_nfs_client_helpers() {
+	log "Installing nfs-common package..."
+
+	apt-get update -y
+	apt-get install -y nfs-common
+}
+
 _setup_kube_repo() {
     log "Setting up Kubernetes apt repository..."
 
@@ -124,6 +131,9 @@ install_kubernetes() {
 
 	# Set up the Kubernetes apt repository
 	_setup_kube_repo "$version"
+
+	# Install NFS client helpers
+	_install_nfs_client_helpers
 
 	# Increase system limits & open file descriptors
 	_raise_ionotify_limits
